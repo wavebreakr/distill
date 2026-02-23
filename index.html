@@ -710,22 +710,22 @@ async function getVideoTitle(videoId) {
 async function summariseWithGemini(videoId, apiKey) {
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-  const prompt = `Watch this entire YouTube video from start to finish, then summarise its most valuable and interesting content.
+  const prompt = `Watch this entire YouTube video. Ignore any intro, outro, or filler content.
 
-Ignore any intro sequences, title cards, coffee-making, or other filler at the start. Focus on the actual substance, arguments, insights, and information in the video.
+Write exactly 5 key takeaways from this video. Each takeaway must:
+- Start on a new line
+- Begin with "- " (a dash and a space)
+- Be a single complete sentence
+- Capture a specific insight, fact, or argument from the video
 
-Write 7 key takeaways that would be genuinely useful to someone who wants to know what this video is actually about and what they would learn from watching it.
+Example format:
+- The speaker argues that AI will not replace writers but will change the skills required.
+- Content design has historically evolved alongside every major shift in technology.
+- Teams that adopt AI early for repetitive tasks free up time for higher-value creative work.
+- The most effective AI outputs still require human editing and judgment to be usable.
+- Writers should focus on developing taste and critical thinking as their core differentiator.
 
-Format your response EXACTLY like this — each point on its own line, starting with a number and period:
-1. Write the first key takeaway as a full informative sentence here.
-2. Write the second key takeaway as a full informative sentence here.
-3. Write the third key takeaway as a full informative sentence here.
-
-Rules:
-- Watch the WHOLE video before writing anything — do not just describe the first 30 seconds
-- Each point must capture a real insight, argument, fact, or conclusion from the video
-- Do not describe what happens visually — summarise what is being communicated or taught
-- Do not add any introduction, conclusion, or other text — just the 7 numbered lines`;
+Now write exactly 5 takeaways from the video in that format. Nothing else.`;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -739,10 +739,7 @@ Rules:
             { text: prompt }
           ]
         }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 800
-        }
+        generationConfig: { temperature: 0.2, maxOutputTokens: 600 }
       })
     }
   );
@@ -759,32 +756,25 @@ Rules:
   const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   if (!raw) throw new Error('empty_response');
 
-  // Robust parser - handles straight/curly quotes, varied line breaks, any formatting
-  // First normalise curly/smart quotes and other unicode punctuation to straight
-  const normalised = raw
-    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")  // curly single quotes
-    .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')  // curly double quotes
-    .replace(/\r\n/g, '\n').replace(/\r/g, '\n');               // normalise line endings
-
-  // Split into lines and try to find numbered items
-  const allLines = normalised.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-
-  // Try matching lines that start with a number
-  let bullets = allLines
-    .filter(l => /^\d+[.):\-]/.test(l))
-    .map(l => l.replace(/^\d+[.):\-]\s*/, '').trim())
+  // Extract lines starting with "- "
+  const bullets = raw
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.startsWith('- '))
+    .map(l => l.slice(2).trim())
     .filter(l => l.length > 10);
 
-  // If we got fewer than 3, Gemini probably returned a paragraph or unusual format
-  // Fall back to splitting by sentence or taking any substantive line
-  if (bullets.length < 3) {
-    bullets = allLines
-      .map(l => l.replace(/^[-*•·]\s*/, '').trim())
-      .filter(l => l.length > 25 && !/^(here are|key (points|takeaways)|summary|note:)/i.test(l));
+  // Fallback: grab any substantive line
+  if (bullets.length < 2) {
+    const fallback = raw
+      .split('\n')
+      .map(l => l.replace(/^[-*•·\d.):]+\s*/, '').trim())
+      .filter(l => l.length > 30 && !/^(here are|key|summary|note:|example)/i.test(l));
+    if (fallback.length === 0) throw new Error('empty_response');
+    return fallback.slice(0, 5);
   }
 
-  if (bullets.length === 0) throw new Error('empty_response');
-  return bullets.slice(0, 10); // cap at 10
+  return bullets.slice(0, 5);
 }
 
 function renderResults(videoId, title, bullets) {
