@@ -709,15 +709,19 @@ async function getVideoTitle(videoId) {
 
 async function summariseWithGemini(videoId, apiKey) {
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const prompt = `Watch this YouTube video and extract the 5-10 most important bullet points.
+  const prompt = `Watch this YouTube video and extract the 5 to 10 most important bullet points.
 
 Each bullet point should:
 - Be a complete, informative sentence (not a vague headline)
 - Capture a specific insight, fact, argument, or key takeaway
-- Be written clearly so someone who hasn't watched it can understand it
+- Be written clearly so someone who has not watched it can understand it
 
-You MUST respond with ONLY a valid JSON array of strings. No preamble, no explanation, no markdown code fences, no backticks. Start your response with [ and end with ]. Every string must be properly terminated with a closing quote before the comma or closing bracket.
-Example: ["First key point.", "Second key point.", "Third key point."]`;
+Respond with a plain numbered list like this, and nothing else:
+1. First key point.
+2. Second key point.
+3. Third key point.
+
+Do not use JSON. Do not use markdown. Just a plain numbered list.`;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -749,36 +753,14 @@ Example: ["First key point.", "Second key point.", "Third key point."]`;
   const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   if (!raw) throw new Error('empty_response');
 
-  // Try to extract a JSON array from the response, however Gemini formatted it
-  let parsed;
-  try {
-    // First try parsing the whole thing directly
-    const clean = raw.replace(/```json|```/g, '').trim();
-    parsed = JSON.parse(clean);
-  } catch {
-    // If that fails, try to extract just the array portion using regex
-    const match = raw.match(/\[([\s\S]*?)\]/);
-    if (match) {
-      try {
-        parsed = JSON.parse(match[0]);
-      } catch {
-        // Last resort: extract anything that looks like a quoted string
-        const lines = [...raw.matchAll(/"([^"]{10,})"/g)].map(m => m[1]);
-        if (lines.length > 0) { parsed = lines; }
-        else throw new Error('parse_error');
-      }
-    } else {
-      // No array found — split by newlines and clean up
-      const lines = raw.split('\n')
-        .map(l => l.replace(/^[\d\-\*\.\s]+/, '').trim())
-        .filter(l => l.length > 20);
-      if (lines.length > 0) { parsed = lines; }
-      else throw new Error('parse_error');
-    }
-  }
+  // Parse plain numbered list into array
+  const bullets = raw
+    .split('\n')
+    .map(l => l.replace(/^\d+[.):]\s*/, '').replace(/^[-*]\s*/, '').trim())
+    .filter(l => l.length > 15);
 
-  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('empty_response');
-  return parsed;
+  if (bullets.length === 0) throw new Error('empty_response');
+  return bullets;
 }
 
 function renderResults(videoId, title, bullets) {
