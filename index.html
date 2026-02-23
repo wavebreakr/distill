@@ -759,25 +759,32 @@ Rules:
   const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   if (!raw) throw new Error('empty_response');
 
-  // Parse every line that starts with a number
-  const bullets = raw
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => /^\d+\./.test(l))           // must start with "1." etc
-    .map(l => l.replace(/^\d+\.\s*/, '').trim()) // strip the number
+  // Robust parser - handles straight/curly quotes, varied line breaks, any formatting
+  // First normalise curly/smart quotes and other unicode punctuation to straight
+  const normalised = raw
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")  // curly single quotes
+    .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')  // curly double quotes
+    .replace(/\r\n/g, '\n').replace(/\r/g, '\n');               // normalise line endings
+
+  // Split into lines and try to find numbered items
+  const allLines = normalised.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  // Try matching lines that start with a number
+  let bullets = allLines
+    .filter(l => /^\d+[.):\-]/.test(l))
+    .map(l => l.replace(/^\d+[.):\-]\s*/, '').trim())
     .filter(l => l.length > 10);
 
-  // Fallback: if numbered parsing got nothing, take any non-empty line
-  if (bullets.length === 0) {
-    const fallback = raw
-      .split('\n')
-      .map(l => l.replace(/^[-*\d.):]+\s*/, '').trim())
-      .filter(l => l.length > 20);
-    if (fallback.length === 0) throw new Error('empty_response');
-    return fallback;
+  // If we got fewer than 3, Gemini probably returned a paragraph or unusual format
+  // Fall back to splitting by sentence or taking any substantive line
+  if (bullets.length < 3) {
+    bullets = allLines
+      .map(l => l.replace(/^[-*•·]\s*/, '').trim())
+      .filter(l => l.length > 25 && !/^(here are|key (points|takeaways)|summary|note:)/i.test(l));
   }
 
-  return bullets;
+  if (bullets.length === 0) throw new Error('empty_response');
+  return bullets.slice(0, 10); // cap at 10
 }
 
 function renderResults(videoId, title, bullets) {
