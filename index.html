@@ -710,22 +710,14 @@ async function getVideoTitle(videoId) {
 async function summariseWithGemini(videoId, apiKey) {
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-  const prompt = `Watch this entire YouTube video. Ignore any intro, outro, or filler content.
+  const prompt = `Watch this entire YouTube video and identify the 5 most important takeaways.
 
-Write exactly 5 key takeaways from this video. Each takeaway must:
-- Start on a new line
-- Begin with "- " (a dash and a space)
-- Be a single complete sentence
-- Capture a specific insight, fact, or argument from the video
+Return ONLY the 5 takeaways separated by the separator ||| with no other text before, after, or between them.
 
-Example format:
-- The speaker argues that AI will not replace writers but will change the skills required.
-- Content design has historically evolved alongside every major shift in technology.
-- Teams that adopt AI early for repetitive tasks free up time for higher-value creative work.
-- The most effective AI outputs still require human editing and judgment to be usable.
-- Writers should focus on developing taste and critical thinking as their core differentiator.
+Example of the exact format required:
+AI will not replace writers but will change the skills they need|||Content design has evolved alongside every major technology shift|||Teams using AI for repetitive tasks free up time for more creative work|||The best AI outputs still require human editing to be usable|||Writers should focus on developing taste and judgment as their core skill
 
-Now write exactly 5 takeaways from the video in that format. Nothing else.`;
+Now return exactly 5 takeaways from the video in that exact format. No intro. No numbering. No line breaks. Just the 5 takeaways separated by |||`;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -739,7 +731,7 @@ Now write exactly 5 takeaways from the video in that format. Nothing else.`;
             { text: prompt }
           ]
         }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 600 }
+        generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
       })
     }
   );
@@ -756,24 +748,13 @@ Now write exactly 5 takeaways from the video in that format. Nothing else.`;
   const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   if (!raw) throw new Error('empty_response');
 
-  // Extract lines starting with "- "
+  // Split on ||| separator — the only parsing we need
   const bullets = raw
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l.startsWith('- '))
-    .map(l => l.slice(2).trim())
-    .filter(l => l.length > 10);
+    .split('|||')
+    .map(b => b.replace(/^[\s\n\r]+|[\s\n\r]+$/g, '')) // trim whitespace
+    .filter(b => b.length > 10);
 
-  // Fallback: grab any substantive line
-  if (bullets.length < 2) {
-    const fallback = raw
-      .split('\n')
-      .map(l => l.replace(/^[-*•·\d.):]+\s*/, '').trim())
-      .filter(l => l.length > 30 && !/^(here are|key|summary|note:|example)/i.test(l));
-    if (fallback.length === 0) throw new Error('empty_response');
-    return fallback.slice(0, 5);
-  }
-
+  if (bullets.length === 0) throw new Error('empty_response');
   return bullets.slice(0, 5);
 }
 
