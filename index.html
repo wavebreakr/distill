@@ -731,7 +731,8 @@ Now return exactly 5 takeaways from the video in that exact format. No intro. No
             { text: prompt }
           ]
         }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
+        generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
+        thinkingConfig: { thinkingBudget: 0 }
       })
     }
   );
